@@ -8,6 +8,12 @@
 
 登录后，按显示器为应用指定工作区位置。每台显示器的工作区位置都从 1 开始；同一显示器上填写相同位置的应用会进入同一个工作区。界面中的位置不是 Hyprland 的全局工作区 ID，也不是应用启动顺序。
 
+## 依赖
+
+- 支持 Quickshell 和 Hyprland Lua 的 Omarchy Quattro。
+- 登录启动需要 `python3`、`hyprctl` 和 `uwsm-app`；通过搜索选择的应用还需要 `gtk-launch`。
+- 只有使用本地 `./install.sh` 脚本时才需要 `jq`。
+
 ## 安装
 
 本地项目：

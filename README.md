@@ -8,6 +8,12 @@ English | [简体中文](README.zh-CN.md)
 
 Launch applications at login into a numbered workspace position on each monitor. Positions start at 1 on every monitor and are mapped to Hyprland workspace IDs internally. Multiple apps can share a position. Positions do not control app launch order.
 
+## Requirements
+
+- Omarchy Quattro with Quickshell and Hyprland Lua support.
+- `python3`, `hyprctl`, and `uwsm-app` for launching apps at login; `gtk-launch` for apps selected from the search dialog.
+- `jq` only when using the local `./install.sh` script.
+
 ## Install
 
 Install from GitHub with `omarchy plugin add https://github.com/manateelazycat/omarchy-startup-map --enable --yes`. From a local checkout, run `./install.sh`. The plugin places its icon on the right side of the Omarchy bar.
