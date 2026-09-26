@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.manateelazycat.startup-map",
+  "name": "Startup Map",
+  "version": "1.0.0",
+  "author": "Andy",
+  "license": "GPL-3.0-only",
+  "description": "Launch applications into per-monitor workspace positions when logging in.",
+  "kinds": ["service", "bar-widget"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Startup Map",
+    "description": "Edit login apps and their monitor workspaces.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
