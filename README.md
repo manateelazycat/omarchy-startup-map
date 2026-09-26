@@ -1,6 +1,10 @@
 # Omarchy Startup Map
 
-[简体中文](README.zh-CN.md)
+English | [简体中文](README.zh-CN.md)
+
+![Startup Map monitor and application settings](preview.png)
+
+![Search installed applications by name](app-search.jpg)
 
 Launch applications at login into a numbered workspace position on each monitor. Positions start at 1 on every monitor and are mapped to Hyprland workspace IDs internally. Multiple apps can share a position. Positions do not control app launch order.
 
