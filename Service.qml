@@ -649,6 +649,7 @@ Item {
                       Text {
                         x: 42; y: 5; width: parent.width - 48
                         text: app.name
+                        textFormat: Text.PlainText
                         color: Color.foreground
                         font.family: Style.font.family
                         font.pixelSize: 14
@@ -657,6 +658,7 @@ Item {
                       Text {
                         x: 42; y: 25; width: parent.width - 48
                         text: app.execString
+                        textFormat: Text.PlainText
                         color: Color.foreground
                         opacity: 0.55
                         font.family: Style.font.family
