@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import startup_map as sm
@@ -80,6 +81,52 @@ class StartupMapTests(unittest.TestCase):
     def test_selected_desktop_uses_gtk_launch(self):
         entry = {"command": "/usr/bin/example %U", "desktopId": "org.example.App", "name": "App"}
         self.assertIn("gtk-launch org.example.App.desktop", sm.launch_command(entry, "token"))
+
+    def test_direct_command_keeps_launch_token_without_gtk_launch(self):
+        entry = {"command": "/usr/bin/example", "desktopId": "", "name": "App"}
+        command = sm.launch_command(entry, "token")
+        self.assertIn("OMARCHY_STARTUP_MAP_TOKEN=token", command)
+        self.assertIn("sh -c /usr/bin/example", command)
+        self.assertNotIn("gtk-launch", command)
+
+    def test_watcher_places_only_main_window_when_process_opens_multiple(self):
+        entry = {"name": "懒猫微服", "monitor": "DP-2", "workspaceId": 4}
+        child = {"address": "0x1", "pid": 123, "initialTitle": "懒猫清单-user",
+                 "workspace": {"id": 8}, "monitor": 0}
+        main = {"address": "0x2", "pid": 123, "initialTitle": "懒猫微服-user",
+                "workspace": {"id": 8}, "monitor": 0}
+        now = [0.0]
+
+        def advance(seconds):
+            now[0] += seconds
+
+        with mock.patch.object(sm.time, "monotonic", side_effect=lambda: now[0]), \
+                mock.patch.object(sm.time, "sleep", side_effect=advance), \
+                mock.patch.object(sm, "hypr_json", return_value=[child, main]), \
+                mock.patch.object(sm, "proc_token", return_value="token"), \
+                mock.patch.object(sm, "place_window") as place:
+            sm.watch_new_windows({"token": entry}, set(), {"DP-2": 3})
+
+        place.assert_called_once_with("0x2", entry)
+
+    def test_watcher_uses_first_window_when_title_does_not_match(self):
+        entry = {"name": "Browser", "monitor": "DP-2", "workspaceId": 4}
+        window = {"address": "0x3", "pid": 456, "initialTitle": "New Tab",
+                  "workspace": {"id": 8}, "monitor": 0}
+        now = [0.0]
+
+        def advance(seconds):
+            now[0] += seconds
+
+        with mock.patch.object(sm.time, "monotonic", side_effect=lambda: now[0]), \
+                mock.patch.object(sm.time, "sleep", side_effect=advance), \
+                mock.patch.object(sm, "hypr_json", return_value=[window]), \
+                mock.patch.object(sm, "proc_token", return_value="token"), \
+                mock.patch.object(sm, "place_window") as place:
+            sm.watch_new_windows({"token": entry}, set(), {"DP-2": 3})
+
+        place.assert_called_once_with("0x3", entry)
+        self.assertGreaterEqual(now[0], 1)
 
     def test_invalid_position_is_rejected(self):
         with self.assertRaises(ValueError):

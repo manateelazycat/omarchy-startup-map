@@ -23,7 +23,7 @@ Click the icon to edit entries. On multiple monitors, select a monitor from the 
 Run `omarchy-shell io.github.manateelazycat.startup-map show` to open the dialog from a terminal.
 Remove the plugin with `omarchy plugin remove io.github.manateelazycat.startup-map --yes`.
 
-The launcher uses Hyprland startup rules and follows new windows that retain its launch token. Apps that reuse another process or create windows through a separate service may need an app-specific command to open the intended window.
+The launcher uses Hyprland startup rules and follows the first new window that retains its launch token, preferring a window whose initial title matches the entry name. Later windows keep their normal Hyprland window rules. Apps that reuse another process or create windows through a separate service may need a direct executable command instead of a `.desktop` launch so the window retains the token.
 
 ## Check
 

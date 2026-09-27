@@ -260,13 +260,24 @@ def place_window(address: str, entry: dict) -> None:
     )
 
 
+def primary_window(candidates: list[dict], entry: dict) -> dict | None:
+    name = entry["name"]
+    for client in candidates:
+        title = str(client.get("initialTitle") or client.get("title") or "")
+        if title == name or title.startswith(name + "-"):
+            return client
+    return None
+
+
 def watch_new_windows(token_to_entry: dict[str, dict], baseline: set[str], monitor_ids: dict[str, int]) -> None:
     if not token_to_entry:
         return
     deadline = time.monotonic() + 45
     seen = set(baseline)
     matched = set()
-    completed_at = None
+    pending: dict[str, list[dict]] = {}
+    first_seen: dict[str, float] = {}
+    reported_errors = set()
     while time.monotonic() < deadline:
         time.sleep(0.4)
         try:
@@ -280,21 +291,30 @@ def watch_new_windows(token_to_entry: dict[str, dict], baseline: set[str], monit
             seen.add(address)
             token = proc_token(client.get("pid") or 0)
             entry = token_to_entry.get(token)
-            if not entry:
+            if not entry or token in matched:
+                continue
+            pending.setdefault(token, []).append(client)
+            first_seen.setdefault(token, time.monotonic())
+        for token, candidates in list(pending.items()):
+            entry = token_to_entry[token]
+            client = primary_window(candidates, entry)
+            if client is None and time.monotonic() - first_seen[token] < 1:
+                continue
+            client = client or candidates[0]
+            address = str(client["address"])
+            try:
+                if (client.get("workspace") or {}).get("id") != entry["workspaceId"] \
+                        or client.get("monitor") != monitor_ids.get(entry["monitor"]):
+                    place_window(address, entry)
+            except RuntimeError as error:
+                if token not in reported_errors:
+                    print(f"放置窗口失败：{entry['name']}：{error}", file=sys.stderr)
+                    reported_errors.add(token)
                 continue
             matched.add(token)
-            if (client.get("workspace") or {}).get("id") == entry["workspaceId"] \
-                    and client.get("monitor") == monitor_ids.get(entry["monitor"]):
-                continue
-            try:
-                place_window(address, entry)
-            except RuntimeError as error:
-                print(f"放置窗口失败：{entry['name']}：{error}", file=sys.stderr)
+            del pending[token]
         if len(matched) == len(token_to_entry):
-            if completed_at is None:
-                completed_at = time.monotonic()
-            elif time.monotonic() - completed_at >= 5:
-                break
+            break
 
 
 def mark_session_once() -> bool:
