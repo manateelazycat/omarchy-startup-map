@@ -13,7 +13,11 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "󰐖"
+    iconComponent: Component {
+      RocketIcon {
+        color: button.active && button.useActiveColor ? button.activeColor : button.foreground
+      }
+    }
     active: root.startupService ? root.startupService.opened : false
     tooltipText: "登录启动应用"
     onPressed: function(mouseButton) {
