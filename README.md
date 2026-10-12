@@ -29,9 +29,12 @@ The launcher uses Hyprland startup rules and follows the first new window that r
 
 ```bash
 python3 -m unittest discover -s tests -v
+python3 tests/check_theme.py
 omarchy plugin validate .
 /usr/lib/qt6/bin/qmllint -I /usr/share/omarchy/shell Service.qml BarWidget.qml
 python3 startup_map.py dry-run
 ```
 
-GPL-3.0-only. Monitor diagram geometry is adapted from [Omarchy Display Reset](https://github.com/manateelazycat/omarchy-display-reset).
+`CompatUi` contains Omarchy controls with qualified theme imports for Qt 6.12, including tooltip borders that use the resolved theme color. This keeps the dialog, app picker and confirmation controls themed without modifying system files. The theme check uses isolated settings and does not launch apps or write user configuration.
+
+GPL-3.0-only. Monitor diagram geometry is adapted from [Omarchy Display Reset](https://github.com/manateelazycat/omarchy-display-reset). Adapted Omarchy controls retain their MIT license in `CompatUi/OMARCHY-LICENSE`.

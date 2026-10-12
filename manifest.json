@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.manateelazycat.startup-map",
   "name": "Startup Map",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "Andy",
   "license": "GPL-3.0-only",
   "description": "Launch applications into per-monitor workspace positions when logging in.",

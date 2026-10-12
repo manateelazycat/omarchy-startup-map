@@ -1,0 +1,9 @@
+singleton ThemeBorder 1.0 ThemeBorder.qml
+BarIconButton 1.0 BarIconButton.qml
+Button 1.0 Button.qml
+ConfirmDialog 1.0 ConfirmDialog.qml
+OpticalGlyph 1.0 OpticalGlyph.qml
+PanelActionButton 1.0 PanelActionButton.qml
+PanelToolTip 1.0 PanelToolTip.qml
+TextField 1.0 TextField.qml
+WidgetButton 1.0 WidgetButton.qml

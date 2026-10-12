@@ -2,7 +2,8 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
-import qs.Commons
+import qs.Commons as Commons
+import "CompatUi" as StartupUi
 import qs.Ui
 import "Layout.js" as DisplayLayout
 import "AppCatalog.js" as AppCatalog
@@ -281,6 +282,12 @@ Item {
     function show(): void { root.open() }
     function hide(): void { root.requestClose() }
     function toggle(): void { root.toggle() }
+    function status(): string {
+      return JSON.stringify({opened: root.opened, screen: root.dialogScreenName,
+        error: root.errorMessage, displays: root.displays,
+        palette: {background: String(Commons.Color.background), foreground: String(Commons.Color.foreground),
+          accent: String(Commons.Color.accent)}})
+    }
   }
 
   Variants {
@@ -317,8 +324,8 @@ Item {
               + Math.max(0, Math.min(3, root.visibleEntries.length) * 154 - 100))
           x: Math.max(14, Math.min(parent.width - width - 14, root.dialogCenterX - width / 2))
           y: Math.max(14, Math.min(parent.height - height - 14, root.dialogCenterY - height / 2))
-          color: Color.background
-          border.color: Color.accent
+          color: Commons.Color.background
+          border.color: Commons.Color.accent
           border.width: 1
           radius: 0
 
@@ -328,8 +335,8 @@ Item {
             id: heading
             x: 24; y: 20
             text: "登录启动应用"
-            color: Color.foreground
-            font.family: Style.font.family
+            color: Commons.Color.foreground
+            font.family: Commons.Style.font.family
             font.pixelSize: 23
             font.bold: true
           }
@@ -338,9 +345,9 @@ Item {
             x: 24; y: 57
             width: parent.width - 48
             text: root.errorMessage || "选择应用启动后所在的显示器与工作区；更改将在下次登录时生效"
-            color: root.errorMessage ? Color.urgent : Color.foreground
+            color: root.errorMessage ? Commons.Color.urgent : Commons.Color.foreground
             opacity: root.errorMessage ? 1 : 0.65
-            font.family: Style.font.family
+            font.family: Commons.Style.font.family
             font.pixelSize: 13
             elide: Text.ElideRight
           }
@@ -364,9 +371,9 @@ Item {
                 readonly property bool selected: root.selectedMonitorName === modelData.name
                 x: geometry.x; y: geometry.y
                 width: geometry.width; height: geometry.height
-                color: selected ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.28)
+                color: selected ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.28)
                   : Qt.rgba(0.5, 0.5, 0.5, 0.12)
-                border.color: selected ? Color.accent : Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.5)
+                border.color: selected ? Commons.Color.accent : Qt.rgba(Commons.Color.foreground.r, Commons.Color.foreground.g, Commons.Color.foreground.b, 0.5)
                 border.width: selected ? 2 : 1
 
                 Text {
@@ -374,10 +381,10 @@ Item {
                   width: parent.width - 8
                   text: modelData.name + "\n" + root.countForMonitor(modelData.name) + " 个应用"
                   textFormat: Text.PlainText
-                  color: Color.foreground
+                  color: Commons.Color.foreground
                   horizontalAlignment: Text.AlignHCenter
                   verticalAlignment: Text.AlignVCenter
-                  font.family: Style.font.family
+                  font.family: Commons.Style.font.family
                   font.pixelSize: 13
                   font.bold: selected
                   elide: Text.ElideRight
@@ -404,13 +411,13 @@ Item {
               anchors.left: parent.left
               anchors.verticalCenter: parent.verticalCenter
               text: root.selectedMonitorName + " 的启动应用"
-              color: Color.foreground
-              font.family: Style.font.family
+              color: Commons.Color.foreground
+              font.family: Commons.Style.font.family
               font.pixelSize: 16
               font.bold: true
             }
 
-            Button {
+            StartupUi.Button {
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
               text: "＋ 添加"
@@ -457,12 +464,12 @@ Item {
                     x: 12
                     anchors.verticalCenter: nameField.verticalCenter
                     text: "名称"
-                    color: Color.foreground
-                    font.family: Style.font.family
+                    color: Commons.Color.foreground
+                    font.family: Commons.Style.font.family
                     font.pixelSize: 13
                   }
 
-                  TextField {
+                  StartupUi.TextField {
                     id: nameField
                     x: 82; y: 10
                     width: parent.width - x - 48
@@ -475,22 +482,22 @@ Item {
                     x: 12
                     anchors.verticalCenter: commandField.verticalCenter
                     text: "启动路径"
-                    color: Color.foreground
-                    font.family: Style.font.family
+                    color: Commons.Color.foreground
+                    font.family: Commons.Style.font.family
                     font.pixelSize: 13
                   }
 
-                  PanelActionButton {
+                  StartupUi.PanelActionButton {
                     anchors.right: parent.right
                     anchors.rightMargin: 12
                     anchors.verticalCenter: nameField.verticalCenter
                     iconText: "✕"
                     tooltipText: "删除"
-                    hoverColor: Color.urgent
+                    hoverColor: Commons.Color.urgent
                     onClicked: root.askDelete(row)
                   }
 
-                  TextField {
+                  StartupUi.TextField {
                     id: commandField
                     x: 82; y: 53
                     width: nameField.width
@@ -504,7 +511,7 @@ Item {
                       root.errorMessage = ""
                     }
 
-                    PanelActionButton {
+                    StartupUi.PanelActionButton {
                       anchors.right: parent.right
                       anchors.rightMargin: 5
                       anchors.verticalCenter: parent.verticalCenter
@@ -518,12 +525,12 @@ Item {
                     x: 12
                     anchors.verticalCenter: workspaceField.verticalCenter
                     text: "工作区"
-                    color: Color.foreground
-                    font.family: Style.font.family
+                    color: Commons.Color.foreground
+                    font.family: Commons.Style.font.family
                     font.pixelSize: 13
                   }
 
-                  TextField {
+                  StartupUi.TextField {
                     id: workspaceField
                     x: 82; y: 96
                     width: 92
@@ -541,9 +548,9 @@ Item {
             anchors.centerIn: listView
             visible: root.visibleEntries.length === 0
             text: "这里还没有启动应用"
-            color: Color.foreground
+            color: Commons.Color.foreground
             opacity: 0.6
-            font.family: Style.font.family
+            font.family: Commons.Style.font.family
             font.pixelSize: 14
           }
 
@@ -558,8 +565,8 @@ Item {
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
               spacing: 8
-              Button { text: "取消"; focusable: true; onClicked: root.requestClose() }
-              Button {
+              StartupUi.Button { text: "取消"; focusable: true; onClicked: root.requestClose() }
+              StartupUi.Button {
                 text: root.saving ? "保存中…" : "保存"
                 focusable: true
                 selected: true
@@ -581,21 +588,21 @@ Item {
               width: Math.min(560, parent.width - 32)
               height: Math.min(460, parent.height - 32)
               anchors.centerIn: parent
-              color: Color.background
-              border.color: Color.accent
+              color: Commons.Color.background
+              border.color: Commons.Color.accent
               border.width: 1
               MouseArea { anchors.fill: parent; onClicked: {} }
 
               Text {
                 x: 18; y: 16
                 text: "选择应用"
-                color: Color.foreground
-                font.family: Style.font.family
+                color: Commons.Color.foreground
+                font.family: Commons.Style.font.family
                 font.pixelSize: 18
                 font.bold: true
               }
 
-              TextField {
+              StartupUi.TextField {
                 id: searchField
                 x: 18; y: 52
                 width: parent.width - 36
@@ -639,7 +646,7 @@ Item {
                       width: searchColumn.width
                       height: 44
                       color: index === root.pickerIndex
-                        ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.18) : "transparent"
+                        ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.18) : "transparent"
 
                       Image {
                         x: 7; y: 9; width: 26; height: 26
@@ -650,8 +657,8 @@ Item {
                         x: 42; y: 5; width: parent.width - 48
                         text: app.name
                         textFormat: Text.PlainText
-                        color: Color.foreground
-                        font.family: Style.font.family
+                        color: Commons.Color.foreground
+                        font.family: Commons.Style.font.family
                         font.pixelSize: 14
                         elide: Text.ElideRight
                       }
@@ -659,9 +666,9 @@ Item {
                         x: 42; y: 25; width: parent.width - 48
                         text: app.execString
                         textFormat: Text.PlainText
-                        color: Color.foreground
+                        color: Commons.Color.foreground
                         opacity: 0.55
-                        font.family: Style.font.family
+                        font.family: Commons.Style.font.family
                         font.pixelSize: 11
                         elide: Text.ElideRight
                       }
@@ -679,7 +686,7 @@ Item {
             }
           }
 
-          ConfirmDialog {
+          StartupUi.ConfirmDialog {
             anchors.fill: parent
             z: 20
             opened: root.confirmationKind !== ""
