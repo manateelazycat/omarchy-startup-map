@@ -471,6 +471,7 @@ Item {
 
                   StartupUi.TextField {
                     id: nameField
+                    editingEnabled: overlay.visible && !root.searchingRowId && !root.confirmationKind
                     x: 82; y: 10
                     width: parent.width - x - 48
                     placeholderText: "名称"
@@ -499,6 +500,7 @@ Item {
 
                   StartupUi.TextField {
                     id: commandField
+                    editingEnabled: overlay.visible && !root.searchingRowId && !root.confirmationKind
                     x: 82; y: 53
                     width: nameField.width
                     rightPadding: horizontalPadding + 38
@@ -532,6 +534,7 @@ Item {
 
                   StartupUi.TextField {
                     id: workspaceField
+                    editingEnabled: overlay.visible && !root.searchingRowId && !root.confirmationKind
                     x: 82; y: 96
                     width: 92
                     horizontalAlignment: TextInput.AlignHCenter
@@ -602,25 +605,21 @@ Item {
                 font.bold: true
               }
 
-              StartupUi.TextField {
-                id: searchField
+              Loader {
+                id: searchFieldLoader
                 x: 18; y: 52
                 width: parent.width - 36
-                placeholderText: "搜索应用名称…"
-                text: root.searchQuery
-                onTextEdited: { root.searchQuery = text; root.pickerIndex = 0 }
-                Keys.onDownPressed: root.pickerIndex = Math.min(root.pickerRows.length - 1, root.pickerIndex + 1)
-                Keys.onUpPressed: root.pickerIndex = Math.max(0, root.pickerIndex - 1)
-                Keys.onReturnPressed: root.chooseApp(root.pickerIndex)
-                Keys.onEnterPressed: root.chooseApp(root.pickerIndex)
-                Keys.onEscapePressed: root.searchingRowId = ""
-              }
-
-              Connections {
-                target: root
-                function onSearchingRowIdChanged() {
-                  if (root.searchingRowId)
-                    Qt.callLater(function() { searchField.forceActiveFocus() })
+                active: overlay.visible && root.searchingRowId !== ""
+                onLoaded: item.forceActiveFocus()
+                sourceComponent: StartupUi.TextField {
+                  placeholderText: "搜索应用名称…"
+                  text: root.searchQuery
+                  onTextEdited: { root.searchQuery = text; root.pickerIndex = 0 }
+                  Keys.onDownPressed: root.pickerIndex = Math.min(root.pickerRows.length - 1, root.pickerIndex + 1)
+                  Keys.onUpPressed: root.pickerIndex = Math.max(0, root.pickerIndex - 1)
+                  Keys.onReturnPressed: root.chooseApp(root.pickerIndex)
+                  Keys.onEnterPressed: root.chooseApp(root.pickerIndex)
+                  Keys.onEscapePressed: root.searchingRowId = ""
                 }
               }
 

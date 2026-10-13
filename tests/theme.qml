@@ -39,6 +39,12 @@ ShellRoot {
                 service.draftEntries = [{id: "test", name: "测试", command: "/bin/true", monitor: screen.name, position: 1}];
                 service.opened = true;
                 checks.wait(100);
+                var overlay = service.testWindows.instances[0];
+                var loader = checks.findChild(overlay.contentItem, "searchFieldLoader");
+                var nameField = checks.findChild(overlay.contentItem, "nameField");
+                check(loader !== null && nameField !== null, "Dialog controls exist");
+                check(loader.item === null, "Search field absent before picker opens");
+                check(!nameField.readOnly, "Visible dialog allows editing");
                 Commons.Color.background = "#060b1e";
                 Commons.Color.foreground = "#ffcead";
                 Commons.Color.accent = "#7d82d9";
@@ -46,15 +52,24 @@ ShellRoot {
                 checkPalette();
                 service.searchingRowId = "test";
                 checks.wait(100);
+                check(loader.item !== null, "Search field created when picker opens");
+                check(nameField.readOnly, "Covered dialog is read-only");
+                check(loader.item.foreground === Commons.Color.foreground, "Search field theme");
                 service.searchingRowId = "";
+                checks.wait(50);
+                check(loader.item === null, "Search field destroyed when picker closes");
                 service.confirmationKind = "discard";
                 checks.wait(100);
                 checkPalette();
+                check(nameField.readOnly, "Confirmation makes dialog read-only");
                 Commons.Color.background = "#fafafa";
                 Commons.Color.foreground = "#202020";
                 Commons.Color.accent = "#0055aa";
                 checks.wait(100);
                 checkPalette();
+                service.close();
+                checks.wait(50);
+                check(nameField.readOnly, "Hidden dialog is read-only");
                 console.log("STARTUP_MAP_THEME_PASS");
             } catch (error) { console.log("STARTUP_MAP_THEME_FAIL", String(error)); }
             Qt.quit();

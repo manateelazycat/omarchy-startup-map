@@ -12,6 +12,7 @@ Launch applications at login into a numbered workspace position on each monitor.
 
 - Omarchy Quattro with Quickshell and Hyprland Lua support.
 - `python3`, `hyprctl`, and `uwsm-app` for launching apps at login; `gtk-launch` for apps selected from the search dialog.
+- `wl-paste` (from `wl-clipboard`) for pasting text into input fields.
 - `jq` only when using the local `./install.sh` script.
 
 ## Install
@@ -30,11 +31,14 @@ The launcher uses Hyprland startup rules and follows the first new window that r
 ```bash
 python3 -m unittest discover -s tests -v
 python3 tests/check_theme.py
+python3 tests/check_clipboard.py
 omarchy plugin validate .
 /usr/lib/qt6/bin/qmllint -I /usr/share/omarchy/shell Service.qml BarWidget.qml
 python3 startup_map.py dry-run
 ```
 
 `CompatUi` contains Omarchy controls with qualified theme imports for Qt 6.12, including tooltip borders that use the resolved theme color. This keeps the dialog, app picker and confirmation controls themed without modifying system files. The theme check uses isolated settings and does not launch apps or write user configuration.
+
+The search input exists only while the app picker is open. Hidden or covered form fields are read-only. Keyboard, context-menu and middle-click paste read clipboard text in a separate process with a 64 KiB byte limit and a two-second total deadline; rejected transfers leave the field unchanged. Closing the field or moving focus cancels the transfer. Clipboard tests use fake providers without changing the system clipboard.
 
 GPL-3.0-only. Monitor diagram geometry is adapted from [Omarchy Display Reset](https://github.com/manateelazycat/omarchy-display-reset). Adapted Omarchy controls retain their MIT license in `CompatUi/OMARCHY-LICENSE`.

@@ -5,6 +5,7 @@
 // Qualify Commons.Color for Qt 6.12 compatibility.
 import QtQuick
 import QtQuick.Controls as Controls
+import Quickshell.Io
 import qs.Commons as Commons
 import qs.Ui as ShellUi
 
@@ -37,6 +38,83 @@ Controls.TextField {
   // `hovered` property (via onHoveredChanged) — we don't add a sibling
   // signal because the inherited property would shadow it.
   property bool hasCursor: false
+
+  // Qt's native paste reads an entire foreign offer synchronously. Never
+  // route paste gestures or the context menu through that implementation.
+  property bool editingEnabled: true
+  readOnly: !editingEnabled || !visible || !enabled
+  property string pasteError: ""
+  property string _pasteText: ""
+  property int _pasteStart: 0
+  property int _pasteEnd: 0
+  readonly property string _clipboardHelper: decodeURIComponent(
+    String(Qt.resolvedUrl("../clipboard_read.py")).replace(/^file:\/\//, ""))
+
+  function pasteBounded(primary) {
+    if (readOnly || !activeFocus || clipboardProcess.running) return
+    pasteError = ""
+    _pasteText = text
+    _pasteStart = selectionStart
+    _pasteEnd = selectionEnd
+    clipboardProcess.command = ["python3", _clipboardHelper].concat(primary ? ["--primary"] : [])
+    clipboardProcess.running = true
+  }
+
+  onActiveFocusChanged: { if (!activeFocus) clipboardProcess.running = false }
+  onReadOnlyChanged: { if (readOnly) clipboardProcess.running = false }
+
+  Keys.onShortcutOverride: event => {
+    if (event.matches(StandardKey.Paste)) event.accepted = true
+  }
+  Keys.onPressed: event => {
+    if (event.matches(StandardKey.Paste)) {
+      event.accepted = true
+      pasteBounded(false)
+    }
+  }
+
+  MouseArea {
+    anchors.fill: parent
+    acceptedButtons: Qt.MiddleButton
+    onPressed: mouse => {
+      if (root.readOnly) return
+      root.forceActiveFocus()
+      root.cursorPosition = root.positionAt(mouse.x, mouse.y)
+      root.pasteBounded(true)
+    }
+  }
+
+  Controls.ContextMenu.menu: Controls.Menu {
+    Controls.MenuItem { text: qsTr("Cut"); enabled: !root.readOnly && root.selectedText.length > 0; onTriggered: root.cut() }
+    Controls.MenuItem { text: qsTr("Copy"); enabled: root.selectedText.length > 0; onTriggered: root.copy() }
+    Controls.MenuItem { text: qsTr("Paste"); enabled: !root.readOnly; onTriggered: { root.forceActiveFocus(); root.pasteBounded(false) } }
+    Controls.MenuItem { text: qsTr("Select All"); onTriggered: root.selectAll() }
+  }
+
+  PanelToolTip {
+    visible: root.pasteError.length > 0 && root.activeFocus
+    text: qsTr("无法粘贴：") + root.pasteError
+    delay: 0
+    timeout: 4000
+  }
+
+  Process {
+    id: clipboardProcess
+    stdout: StdioCollector {
+      onStreamFinished: {
+        if (root.readOnly || !root.activeFocus || root.text !== root._pasteText
+            || root.selectionStart !== root._pasteStart || root.selectionEnd !== root._pasteEnd) return
+        try {
+          const result = JSON.parse(text)
+          if (!result.ok) { root.pasteError = result.error; return }
+          // A single-line input follows Qt's usual newline handling.
+          const pasted = result.text.replace(/[\r\n]/g, " ")
+          if (root._pasteEnd > root._pasteStart) root.remove(root._pasteStart, root._pasteEnd)
+          root.insert(root._pasteStart, pasted)
+        } catch (error) { root.pasteError = "Clipboard text unavailable" }
+      }
+    }
+  }
 
   readonly property bool _focused: activeFocus
   readonly property bool _hot: hovered || hasCursor

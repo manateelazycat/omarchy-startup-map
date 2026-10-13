@@ -13,6 +13,7 @@
 - 支持 Quickshell 和 Hyprland Lua 的 Omarchy Quattro。
 - 登录启动需要 `python3`、`hyprctl` 和 `uwsm-app`；通过搜索选择的应用还需要 `gtk-launch`。
 - 只有使用本地 `./install.sh` 脚本时才需要 `jq`。
+- 输入框粘贴需要 `wl-paste`（由 `wl-clipboard` 提供）。
 
 ## 安装
 
@@ -48,10 +49,14 @@ omarchy-shell io.github.manateelazycat.startup-map show
 
 ```bash
 python3 -m unittest discover -s tests -v
+python3 tests/check_theme.py
+python3 tests/check_clipboard.py
 omarchy plugin validate .
 /usr/lib/qt6/bin/qmllint -I /usr/share/omarchy/shell Service.qml BarWidget.qml
 python3 startup_map.py dry-run
 ```
+
+搜索输入框只在应用选择器打开时创建；隐藏或被弹窗遮住的表单输入框保持只读。键盘、右键菜单和鼠标中键粘贴均在独立进程中读取剪贴板，限制为 64 KiB、总时长 2 秒。超限或超时不会修改输入框；关闭输入框或移走焦点会取消读取。剪贴板测试使用模拟提供者，不修改系统剪贴板。
 
 ## 协议
 
