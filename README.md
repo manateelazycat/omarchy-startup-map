@@ -8,12 +8,15 @@ English | [简体中文](README.zh-CN.md)
 
 Launch applications at login into a numbered workspace position on each monitor. Positions start at 1 on every monitor and are mapped to Hyprland workspace IDs internally. Multiple apps can share a position. Positions do not control app launch order.
 
+Search both local applications and apps on your signed-in LazyCat MicroServer. Each entry also supports an independent launch delay of 0–3600 seconds, measured from the start of the login launch process. Delays do not accumulate: entries set to 5 and 10 seconds start at those respective offsets. Existing configurations default to zero delay.
+
 ## Requirements
 
 - Omarchy Quattro with Quickshell and Hyprland Lua support.
 - `python3`, `hyprctl`, and `uwsm-app` for launching apps at login; `gtk-launch` for apps selected from the search dialog.
 - `wl-paste` (from `wl-clipboard`) for pasting text into input fields.
 - `jq` only when using the local `./install.sh` script.
+- LazyCat apps require the Linux LazyCat launcher, `xdg-open`, `gtk-launch`, and a signed-in server. Catalog access uses only the Python standard library.
 
 ## Install
 
@@ -22,19 +25,30 @@ Install from GitHub with `omarchy plugin add https://github.com/manateelazycat/o
 Click the icon to edit entries. On multiple monitors, select a monitor from the diagram first. Each entry has a name, launch command, and monitor-local workspace position. The command accepts an absolute executable path or a `.desktop` `Exec` line. The search button filters installed apps and fills the name and `Exec` line. Deleting a filled entry requires confirmation; empty entries are removed immediately. Save writes `~/.config/omarchy/startup-map.json`; changes take effect at the next login.
 
 Run `omarchy-shell io.github.manateelazycat.startup-map show` to open the dialog from a terminal.
+
+Saving keeps the dialog open for further editing. Use the top-right close button to dismiss it; closing with unsaved changes asks for confirmation.
 Remove the plugin with `omarchy plugin remove io.github.manateelazycat.startup-map --yes`.
 
+The picker asynchronously loads the current LazyCat server's application names and icons. Search by name, ID, or “lazycat”. Cached metadata remains searchable offline; reconnect the launcher and reopen the picker to refresh. Metadata and icons are cached under `${XDG_CACHE_HOME:-~/.cache}/omarchy/startup-map/lazycat/`; session credentials are used only in memory. Private certificates are accepted only on the launcher's `fc03::/16` overlay; public HTTPS uses normal certificate validation.
+
+Selecting a LazyCat app saves its app ID, server ID, and window title aliases. Launching uses `lzc://client/app/open?appId=…`. Editing its command clears the LazyCat association. At login the helper starts the launcher if necessary and waits up to 90 seconds for a connection without holding up native apps. A different selected server causes that entry to be skipped.
+
 The launcher uses Hyprland startup rules and follows the first new window that retains its launch token, preferring a window whose initial title matches the entry name. Later windows keep their normal Hyprland window rules. Apps that reuse another process or create windows through a separate service may need a direct executable command instead of a `.desktop` launch so the window retains the token.
+
+LazyCat apps share a process, so their requests are serialized after their configured delays until each new window is identified (up to 45 seconds). Title aliases cover LightOS's `LCMD WebShell` initial title. A single new candidate can be used as a fallback; ambiguous candidates are left in place. Existing windows are not moved. Avoid manually opening other LazyCat apps during this placement interval.
 
 ## Check
 
 ```bash
 python3 -m unittest discover -s tests -v
+node --test tests/app_catalog.test.cjs
 python3 tests/check_theme.py
 python3 tests/check_clipboard.py
+python3 tests/check_save.py
 omarchy plugin validate .
 /usr/lib/qt6/bin/qmllint -I /usr/share/omarchy/shell Service.qml BarWidget.qml
 python3 startup_map.py dry-run
+python3 lazycat_apps.py
 ```
 
 `CompatUi` contains Omarchy controls with qualified theme imports for Qt 6.12, including tooltip borders that use the resolved theme color. This keeps the dialog, app picker and confirmation controls themed without modifying system files. The theme check uses isolated settings and does not launch apps or write user configuration.

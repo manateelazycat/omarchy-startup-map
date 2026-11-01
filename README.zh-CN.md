@@ -8,12 +8,15 @@
 
 登录后，按显示器为应用指定工作区位置。每台显示器的工作区位置都从 1 开始；同一显示器上填写相同位置的应用会进入同一个工作区。界面中的位置不是 Hyprland 的全局工作区 ID，也不是应用启动顺序。
 
+支持搜索本地应用和已登录的懒猫微服上的应用，并为每条应用设置独立的启动延时。
+
 ## 依赖
 
 - 支持 Quickshell 和 Hyprland Lua 的 Omarchy Quattro。
 - 登录启动需要 `python3`、`hyprctl` 和 `uwsm-app`；通过搜索选择的应用还需要 `gtk-launch`。
 - 只有使用本地 `./install.sh` 脚本时才需要 `jq`。
 - 输入框粘贴需要 `wl-paste`（由 `wl-clipboard` 提供）。
+- 懒猫微服应用需要已安装 Linux 懒猫微服启动器及 `xdg-open`、`gtk-launch`，并已登录对应微服；目录查询仅使用 Python 标准库。
 
 ## 安装
 
@@ -31,6 +34,14 @@
 
 点击“保存”后，配置写入 `~/.config/omarchy/startup-map.json`，**下次登录**生效。安装或重启 Omarchy Shell 不会重复启动应用。配置的显示器暂时未连接时，其应用会被跳过。
 
+保存完成后对话框保持打开，可继续编辑。点击右上角的关闭按钮关闭；有未保存的修改时会询问是否放弃。
+
+每条应用的“启动延时”可填写 **0–3600 秒**，默认 0 表示立即启动。延时从本次登录启动流程开始计算，各应用独立计时：例如两条应用分别设置 5 秒和 10 秒，会在第 5 秒、第 10 秒启动。旧配置自动按 0 秒处理；启动延时不改变工作区位置。
+
+搜索框会异步合并本地应用和当前微服的应用，展示名称、图标和微服来源。可搜索名称、应用 ID，或“懒猫”“微服”；懒猫网盘也可搜索中文名称。启动器离线时会显示上次缓存的目录，不影响本地应用搜索。重新登录并连接微服后，重新打开搜索可刷新。目录和图标缓存位于 `${XDG_CACHE_HOME:-~/.cache}/omarchy/startup-map/lazycat/`，不保存登录凭据。
+
+选中微服应用会保存应用 ID、微服标识和窗口标题信息。启动使用 `lzc://client/app/open?appId=…` 协议。手动修改启动命令会清除微服关联，按普通命令处理。登录时若启动器尚未运行，会启动它并最多等待 90 秒连接；本地应用继续独立启动。当前微服与配置不一致时会跳过该应用，避免打开另一台微服的同名应用。
+
 Omarchy Shell IPC 也可打开对话框：
 
 ```bash
@@ -45,15 +56,20 @@ omarchy-shell io.github.manateelazycat.startup-map show
 
 插件优先定位初始标题与配置名称匹配的启动窗口；同一应用后续打开的窗口仍按原有 Hyprland 窗口规则处理。某些应用会复用已运行的进程或通过独立服务创建窗口，导致启动标记丢失。遇到这种情况，可改填直接启动该应用的可执行文件命令，而不是通过 `.desktop` 启动。
 
+懒猫微服应用共享启动器进程，因此在各自延时到达后逐个请求启动并识别新窗口，前一个窗口确认后再请求下一个（最多等待 45 秒）。优先匹配标题别名，包括 LightOS 的 `LCMD WebShell`；仅出现一个候选窗口时可回退匹配，多个候选且标题不匹配时不移动窗口。已经打开的微服窗口不会被重新安排位置。测试时不要同时手动打开其他微服应用。
+
 ## 开发检查
 
 ```bash
 python3 -m unittest discover -s tests -v
+node --test tests/app_catalog.test.cjs
 python3 tests/check_theme.py
 python3 tests/check_clipboard.py
+python3 tests/check_save.py
 omarchy plugin validate .
 /usr/lib/qt6/bin/qmllint -I /usr/share/omarchy/shell Service.qml BarWidget.qml
 python3 startup_map.py dry-run
+python3 lazycat_apps.py
 ```
 
 搜索输入框只在应用选择器打开时创建；隐藏或被弹窗遮住的表单输入框保持只读。键盘、右键菜单和鼠标中键粘贴均在独立进程中读取剪贴板，限制为 64 KiB、总时长 2 秒。超限或超时不会修改输入框；关闭输入框或移走焦点会取消读取。剪贴板测试使用模拟提供者，不修改系统剪贴板。

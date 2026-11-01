@@ -29,6 +29,9 @@ Item {
   property string searchQuery: ""
   property int pickerIndex: 0
   property int catalogRevision: 0
+  property var lazycatEntries: []
+  property string lazycatWarning: ""
+  property double lazycatLoadedAt: 0
   property string confirmationKind: ""
   property string confirmationRowId: ""
   property string confirmationRowName: ""
@@ -50,10 +53,15 @@ Item {
   readonly property var pickerRows: {
     var serial = root.catalogRevision
     void serial
-    return AppCatalog.filtered(DesktopEntries.applications.values || [], root.searchQuery)
+    return AppCatalog.filtered((DesktopEntries.applications.values || []).concat(root.lazycatEntries), root.searchQuery)
   }
 
-  function cloneRows(rows) { return JSON.parse(JSON.stringify(rows || [])) }
+  function cloneRows(rows) {
+    return JSON.parse(JSON.stringify(rows || [])).map(function(row) {
+      if (row.delaySeconds === undefined) row.delaySeconds = 0
+      return row
+    })
+  }
 
   function loadConfig(raw) {
     try {
@@ -135,7 +143,7 @@ Item {
     var id = String(Date.now()) + "-" + String(Math.random()).slice(2)
     root.newlyAddedId = id
     root.draftEntries = root.draftEntries.concat([{ id: id, name: "", command: "",
-      desktopId: "", monitor: root.selectedMonitorName, position: position }])
+      desktopId: "", monitor: root.selectedMonitorName, position: position, delaySeconds: 0 }])
     root.dirty = true
     root.errorMessage = ""
   }
@@ -157,6 +165,21 @@ Item {
     root.errorMessage = ""
   }
 
+  function editRow(row, changes) {
+    // Repeater modelData is a copy of the filtered/sorted row. Update the
+    // canonical draft by ID without replacing the model on every keystroke,
+    // which would destroy the focused editor.
+    for (var key in changes) {
+      row[key] = changes[key]
+      for (var i = 0; i < root.draftEntries.length; i++) {
+        if (root.draftEntries[i].id === row.id)
+          root.draftEntries[i][key] = changes[key]
+      }
+    }
+    root.dirty = true
+    root.errorMessage = ""
+  }
+
   function confirmAction() {
     if (root.confirmationKind === "delete") {
       root.removeRow(root.confirmationRowId)
@@ -171,6 +194,8 @@ Item {
     root.searchingRowId = id
     root.searchQuery = ""
     root.pickerIndex = 0
+    if (!lazycatProcess.running && Date.now() - root.lazycatLoadedAt > 60000)
+      lazycatProcess.running = true
   }
 
   function chooseApp(index) {
@@ -180,7 +205,12 @@ Item {
     var updated = root.draftEntries.map(function(row) {
       if (row.id !== root.searchingRowId) return row
       return Object.assign({}, row, { name: String(entry.name || ""),
-        command: String(entry.execString || ""), desktopId: String(entry.id || "") })
+        command: String(entry.execString || ""),
+        desktopId: entry.source === "lazycat" ? "" : String(entry.id || ""),
+        lazycatAppId: String(entry.lazycatAppId || ""),
+        lazycatBoxId: String(entry.lazycatBoxId || ""),
+        lazycatBoxName: String(entry.lazycatBoxName || ""),
+        lazycatWindowTitles: entry.lazycatWindowTitles || [] })
     })
     root.draftEntries = updated
     root.dirty = true
@@ -196,20 +226,44 @@ Item {
       var name = String(entry.name || "").trim()
       var command = String(entry.command || "").trim()
       var position = Number(entry.position)
+      var delay = Number(entry.delaySeconds === undefined ? 0 : entry.delaySeconds)
       if (!name || !command || !Number.isInteger(position) || position < 1 || position > 100) {
         root.errorMessage = "请填写每条应用的名称、启动命令和 1–100 的工作区位置"
         return
       }
+      if (String(entry.delaySeconds).trim() === "" || !Number.isInteger(delay) || delay < 0 || delay > 3600) {
+        root.errorMessage = "启动延时请输入 0–3600 的整数秒数"
+        return
+      }
       clean.push({ id: String(entry.id), name: name, command: command,
         desktopId: String(entry.desktopId || ""), monitor: String(entry.monitor),
-        position: position })
+        position: position, delaySeconds: delay,
+        lazycatAppId: String(entry.lazycatAppId || ""),
+        lazycatBoxId: String(entry.lazycatBoxId || ""),
+        lazycatBoxName: String(entry.lazycatBoxName || ""),
+        lazycatWindowTitles: entry.lazycatWindowTitles || [] })
     }
     root.pendingEntries = clean
+    var payload = JSON.stringify({ version: 1, entries: clean }, null, 2) + "\n"
+    // FileView does not emit saved() when setText receives identical bytes.
+    if (configFile.text() === payload) {
+      root.finishSave()
+      return
+    }
     root.saving = true
-    configFile.setText(JSON.stringify({ version: 1, entries: clean }, null, 2) + "\n")
+    configFile.setText(payload)
+  }
+
+  function finishSave() {
+    root.savedEntries = root.cloneRows(root.pendingEntries)
+    root.draftEntries = root.cloneRows(root.savedEntries)
+    root.dirty = false
+    root.saving = false
+    root.errorMessage = ""
   }
 
   function iconFor(name) {
+    if (String(name || "").indexOf("file://") === 0) return name
     var result = Quickshell.iconPath(String(name || "application-x-executable"), true)
     return result || Quickshell.iconPath("application-x-executable", true)
   }
@@ -225,10 +279,7 @@ Item {
     onFileChanged: reload()
     onSaved: {
       if (!root.saving) return
-      root.savedEntries = root.cloneRows(root.pendingEntries)
-      root.dirty = false
-      root.saving = false
-      root.close()
+      root.finishSave()
     }
     onSaveFailed: {
       root.saving = false
@@ -245,6 +296,31 @@ Item {
       if (warning || code !== 0)
         console.warn("[Startup Map] " + (warning || "启动失败"))
     }
+  }
+
+  Process {
+    id: lazycatProcess
+    command: ["python3", root.helperPath.replace(/startup_map\.py$/, "lazycat_apps.py")]
+    stdout: StdioCollector { id: lazycatOutput; waitForEnd: true }
+    onExited: function(code) {
+      try {
+        if (code !== 0) throw new Error("读取失败")
+        var catalog = JSON.parse(String(lazycatOutput.text || "{}"))
+        root.lazycatEntries = catalog.entries || []
+        root.lazycatWarning = String(catalog.warning || "")
+        // Retry failures on the next open, including a newly signed-in client.
+        root.lazycatLoadedAt = root.lazycatWarning ? 0 : Date.now()
+        root.pickerIndex = 0
+      } catch (error) {
+        root.lazycatWarning = "无法读取懒猫微服应用；本地应用仍可搜索"
+      }
+    }
+  }
+
+  Timer {
+    interval: 30000
+    running: lazycatProcess.running
+    onTriggered: lazycatProcess.running = false
   }
 
   Process {
@@ -285,6 +361,7 @@ Item {
     function status(): string {
       return JSON.stringify({opened: root.opened, screen: root.dialogScreenName,
         error: root.errorMessage, displays: root.displays,
+        lazycatApps: root.lazycatEntries.length, lazycatWarning: root.lazycatWarning,
         palette: {background: String(Commons.Color.background), foreground: String(Commons.Color.foreground),
           accent: String(Commons.Color.accent)}})
     }
@@ -339,6 +416,17 @@ Item {
             font.family: Commons.Style.font.family
             font.pixelSize: 23
             font.bold: true
+          }
+
+          StartupUi.PanelActionButton {
+            id: closeButton
+            anchors.right: parent.right
+            anchors.rightMargin: 20
+            anchors.verticalCenter: heading.verticalCenter
+            iconText: "✕"
+            tooltipText: "关闭"
+            enabled: !root.saving
+            onClicked: root.requestClose()
           }
 
           Text {
@@ -476,7 +564,7 @@ Item {
                     width: parent.width - x - 48
                     placeholderText: "名称"
                     text: row.name
-                    onTextEdited: { row.name = text; root.dirty = true; root.errorMessage = "" }
+                    onTextEdited: root.editRow(row, { name: text })
                   }
 
                   Text {
@@ -507,10 +595,8 @@ Item {
                     placeholderText: "绝对路径或 .desktop Exec 命令"
                     text: row.command
                     onTextEdited: {
-                      row.command = text
-                      row.desktopId = ""
-                      root.dirty = true
-                      root.errorMessage = ""
+                      root.editRow(row, { command: text, desktopId: "", lazycatAppId: "",
+                        lazycatBoxId: "", lazycatBoxName: "", lazycatWindowTitles: [] })
                     }
 
                     StartupUi.PanelActionButton {
@@ -539,8 +625,38 @@ Item {
                     width: 92
                     horizontalAlignment: TextInput.AlignHCenter
                     text: String(row.position)
-                    onTextEdited: { row.position = text; root.dirty = true; root.errorMessage = "" }
+                    onTextEdited: root.editRow(row, { position: text })
                     onEditingFinished: root.draftEntries = root.draftEntries.slice()
+                  }
+
+                  Text {
+                    x: 198
+                    anchors.verticalCenter: delayField.verticalCenter
+                    text: "启动延时"
+                    color: Commons.Color.foreground
+                    font.family: Commons.Style.font.family
+                    font.pixelSize: 13
+                  }
+
+                  StartupUi.TextField {
+                    id: delayField
+                    editingEnabled: overlay.visible && !root.searchingRowId && !root.confirmationKind
+                    x: 270; y: 96
+                    width: 82
+                    horizontalAlignment: TextInput.AlignHCenter
+                    validator: IntValidator { bottom: 0; top: 3600 }
+                    text: String(row.delaySeconds === undefined ? 0 : row.delaySeconds)
+                    onTextEdited: root.editRow(row, { delaySeconds: text })
+                  }
+
+                  Text {
+                    x: delayField.x + delayField.width + 8
+                    anchors.verticalCenter: delayField.verticalCenter
+                    text: "秒（0 为立即启动）"
+                    color: Commons.Color.foreground
+                    opacity: 0.6
+                    font.family: Commons.Style.font.family
+                    font.pixelSize: 12
                   }
                 }
               }
@@ -624,9 +740,9 @@ Item {
               }
 
               Flickable {
-                x: 18; y: 96
+                x: 18; y: 120
                 width: parent.width - 36
-                height: parent.height - 114
+                height: parent.height - 138
                 clip: true
                 contentWidth: width
                 contentHeight: searchColumn.height
@@ -650,6 +766,7 @@ Item {
                       Image {
                         x: 7; y: 9; width: 26; height: 26
                         source: root.iconFor(app.icon)
+                        asynchronous: true
                         fillMode: Image.PreserveAspectFit
                       }
                       Text {
@@ -663,7 +780,9 @@ Item {
                       }
                       Text {
                         x: 42; y: 25; width: parent.width - 48
-                        text: app.execString
+                        text: app.source === "lazycat"
+                          ? "懒猫微服 · " + app.lazycatBoxName + " · " + app.lazycatAppId
+                          : app.execString
                         textFormat: Text.PlainText
                         color: Commons.Color.foreground
                         opacity: 0.55
@@ -681,6 +800,19 @@ Item {
                     }
                   }
                 }
+              }
+
+              Text {
+                x: 18; y: 96
+                width: parent.width - 36
+                text: lazycatProcess.running ? "正在读取懒猫微服应用…"
+                  : root.lazycatWarning || "本地应用和懒猫微服应用（" + root.lazycatEntries.length + "）"
+                textFormat: Text.PlainText
+                color: Commons.Color.foreground
+                opacity: 0.6
+                font.family: Commons.Style.font.family
+                font.pixelSize: 11
+                elide: Text.ElideRight
               }
             }
           }

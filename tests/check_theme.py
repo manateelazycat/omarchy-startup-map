@@ -11,6 +11,7 @@ def main():
     source = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory(prefix="startup-map-theme-") as directory:
         root = Path(directory)
+        (root / "config/omarchy").mkdir(parents=True)
         plugin = root / "Plugin"
         plugin.mkdir()
         for path in (*source.glob("*.qml"), *source.glob("*.js")):
@@ -26,6 +27,13 @@ def main():
         text = text.replace('property var shell: null', 'property var shell: null\n  property alias testWindows: testWindows')
         text = text.replace('  Variants {', '  Variants {\n    id: testWindows')
         service.write_text(text)
+        # Exercise async catalog loading without accessing the real client.
+        (plugin / "lazycat_apps.py").write_text('import json\nprint(json.dumps({"entries": [{'
+            '"id": "lazycat:box:test.files", "name": "Cloud Drive", '
+            '"execString": "xdg-open lzc://client/app/open?appId=test.files", '
+            '"source": "lazycat", "lazycatAppId": "test.files", "lazycatBoxId": "box", '
+            '"lazycatBoxName": "Test Box", "keywords": ["懒猫网盘"], '
+            '"lazycatWindowTitles": ["懒猫网盘"]}], "warning": ""}))\n')
         shutil.copytree(source / "CompatUi", plugin / "CompatUi")
         shutil.copy2(source / "clipboard_read.py", plugin / "clipboard_read.py")
         for name in ("Commons", "Ui"):

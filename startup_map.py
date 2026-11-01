@@ -15,8 +15,11 @@ import sys
 import time
 import uuid
 
+import lazycat_apps
+
 
 MAX_WORKSPACE = 100
+MAX_DELAY = 3600
 TOKEN_NAME = "OMARCHY_STARTUP_MAP_TOKEN"
 
 
@@ -71,14 +74,26 @@ def validate_entries(raw: dict) -> list[dict]:
         command = str(entry.get("command") or "").strip()
         monitor = str(entry.get("monitor") or "").strip()
         position = entry.get("position")
+        delay = entry.get("delaySeconds", 0)
         if not name or not command or not monitor:
             raise ValueError(f"第 {index} 条应用缺少名称、启动命令或显示器")
         if isinstance(position, bool) or not isinstance(position, int) or not 1 <= position <= MAX_WORKSPACE:
             raise ValueError(f"第 {index} 条应用的工作区位置无效")
+        if isinstance(delay, bool) or not isinstance(delay, int) or not 0 <= delay <= MAX_DELAY:
+            raise ValueError(f"第 {index} 条应用的启动延时无效（0–3600 秒）")
+        app_id = str(entry.get("lazycatAppId") or "").strip()
+        box_id = str(entry.get("lazycatBoxId") or "").strip()
+        titles = entry.get("lazycatWindowTitles", [])
+        if app_id and (not lazycat_apps.valid_app_id(app_id) or not box_id
+                       or not isinstance(titles, list) or not all(isinstance(t, str) for t in titles)):
+            raise ValueError(f"第 {index} 条懒猫微服应用无效")
         clean.append({
             "id": str(entry.get("id") or index), "name": name, "command": command,
             "desktopId": str(entry.get("desktopId") or "").strip(),
-            "monitor": monitor, "position": position,
+            "monitor": monitor, "position": position, "delaySeconds": delay,
+            "lazycatAppId": app_id, "lazycatBoxId": box_id,
+            "lazycatBoxName": str(entry.get("lazycatBoxName") or ""),
+            "lazycatWindowTitles": titles if app_id else [],
         })
     return clean
 
@@ -196,7 +211,9 @@ def desktop_exec_to_command(command: str, name: str = "") -> str:
 
 def launch_command(entry: dict, token: str) -> str:
     desktop_id = entry.get("desktopId", "")
-    if desktop_id:
+    if entry.get("lazycatAppId"):
+        command = "xdg-open " + shlex.quote(lazycat_apps.launch_uri(entry["lazycatAppId"]))
+    elif desktop_id:
         app = desktop_id if desktop_id.endswith(".desktop") else desktop_id + ".desktop"
         command = "gtk-launch " + shlex.quote(app)
     else:
@@ -261,45 +278,67 @@ def place_window(address: str, entry: dict) -> None:
 
 
 def primary_window(candidates: list[dict], entry: dict) -> dict | None:
-    name = entry["name"]
+    names = [entry["name"], *entry.get("lazycatWindowTitles", [])]
     for client in candidates:
-        title = str(client.get("initialTitle") or client.get("title") or "")
-        if title == name or title.startswith(name + "-"):
-            return client
+        for title in (client.get("initialTitle"), client.get("title")):
+            if any(title == name or str(title or "").startswith(name + "-") for name in names if name):
+                return client
     return None
 
 
-def watch_new_windows(token_to_entry: dict[str, dict], baseline: set[str], monitor_ids: dict[str, int]) -> None:
-    if not token_to_entry:
-        return
-    deadline = time.monotonic() + 45
+def watch_new_windows(token_to_entry: dict[str, dict], baseline: set[str], monitor_ids: dict[str, int],
+                      scheduled: list[dict] | None = None) -> None:
+    """Schedule independent delays while tracking windows from earlier launches.
+
+    LazyCat requests are serialized until a new window is placed, because all
+    apps share the launcher's PID. Native launches and their delays stay independent.
+    """
+    started = time.monotonic()
+    active = dict(token_to_entry)
+    deadlines = {token: started + 45 for token in active}
+    queue = sorted(scheduled or [], key=lambda e: e.get("delaySeconds", 0))
     seen = set(baseline)
-    matched = set()
     pending: dict[str, list[dict]] = {}
     first_seen: dict[str, float] = {}
     reported_errors = set()
-    while time.monotonic() < deadline:
-        time.sleep(0.4)
+    lazy_baselines: dict[str, set[str]] = {}
+    lazy_token = ""
+    ready_after = 0.0
+    waiting_since = None
+    launcher_requested = False
+    while active or queue:
+        now = time.monotonic()
         try:
             clients = hypr_json("clients")
         except (OSError, subprocess.SubprocessError, ValueError):
-            continue
+            clients = []
         for client in clients:
             address = str(client.get("address") or "")
             if not address or address in seen:
                 continue
             seen.add(address)
             token = proc_token(client.get("pid") or 0)
-            entry = token_to_entry.get(token)
-            if not entry or token in matched:
+            entry = active.get(token)
+            if not entry or entry.get("lazycatAppId"):
                 continue
             pending.setdefault(token, []).append(client)
             first_seen.setdefault(token, time.monotonic())
+        if lazy_token:
+            candidates = [c for c in clients if c.get("address") not in lazy_baselines[lazy_token]
+                          and c.get("class") == "lzc-client-desktop"
+                          and not str(c.get("initialTitle") or "").startswith("懒猫微服")]
+            if candidates:
+                pending[lazy_token] = candidates
+                first_seen.setdefault(lazy_token, now)
+            else:
+                pending.pop(lazy_token, None)
         for token, candidates in list(pending.items()):
-            entry = token_to_entry[token]
+            entry = active[token]
             client = primary_window(candidates, entry)
             if client is None and time.monotonic() - first_seen[token] < 1:
                 continue
+            if client is None and entry.get("lazycatAppId") and len(candidates) != 1:
+                continue  # Never guess between multiple shared-process windows.
             client = client or candidates[0]
             address = str(client["address"])
             try:
@@ -311,10 +350,63 @@ def watch_new_windows(token_to_entry: dict[str, dict], baseline: set[str], monit
                     print(f"放置窗口失败：{entry['name']}：{error}", file=sys.stderr)
                     reported_errors.add(token)
                 continue
-            matched.add(token)
+            del active[token]
             del pending[token]
-        if len(matched) == len(token_to_entry):
-            break
+            if token == lazy_token:
+                lazy_token = ""
+        for token in list(active):
+            if now >= deadlines[token]:
+                if active[token].get("lazycatAppId"):
+                    print(f"未找到新的应用窗口（应用可能已经打开）：{active[token]['name']}", file=sys.stderr)
+                del active[token]
+                pending.pop(token, None)
+                if token == lazy_token:
+                    lazy_token = ""
+        for entry in list(queue):
+            if now - started < entry.get("delaySeconds", 0):
+                break
+            if entry.get("lazycatAppId"):
+                if lazy_token or now < ready_after:
+                    continue
+                try:
+                    box = lazycat_apps.Client().box()
+                except (OSError, ValueError, KeyError, TypeError):
+                    if waiting_since is None:
+                        waiting_since = now
+                    if not launcher_requested:
+                        launcher_requested = True
+                        try:
+                            subprocess.Popen(["uwsm-app", "--", "gtk-launch", "lzc-client.desktop"],
+                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        except OSError:
+                            pass
+                    ready_after = now + 1
+                    if now - waiting_since < 90:
+                        continue
+                    print(f"懒猫微服启动器未就绪，跳过：{entry['name']}", file=sys.stderr)
+                    queue.remove(entry)
+                    continue
+                waiting_since = None
+                if box["boxId"] != entry["lazycatBoxId"]:
+                    print(f"请先切换到配置的微服：{entry.get('lazycatBoxName') or entry['lazycatBoxId']}", file=sys.stderr)
+                    queue.remove(entry)
+                    continue
+            queue.remove(entry)
+            token = uuid.uuid4().hex
+            try:
+                launch_entry(entry, token)
+            except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+                print(f"启动失败：{entry['name']}：{error}", file=sys.stderr)
+                continue
+            active[token] = entry
+            deadlines[token] = time.monotonic() + 45
+            if entry.get("lazycatAppId"):
+                lazy_token = token
+                lazy_baselines[token] = {str(c.get("address")) for c in clients}
+        if active or queue:
+            # Waiting for a long delay must not create a busy Hyprland poll loop.
+            remaining = min((started + e.get("delaySeconds", 0) - now for e in queue), default=0.4)
+            time.sleep(0.4 if active or remaining <= 0 else min(1, remaining))
 
 
 def mark_session_once() -> bool:
@@ -361,16 +453,7 @@ def run(dry_run: bool = False) -> int:
 
     baseline = {str(client.get("address")) for client in hypr_json("clients")}
     monitor_ids = {monitor["name"]: monitor["id"] for monitor in monitors}
-    token_to_entry = {}
-    for entry in planned["entries"]:
-        token = uuid.uuid4().hex
-        token_to_entry[token] = entry
-        try:
-            launch_entry(entry, token)
-        except (RuntimeError, ValueError) as error:
-            print(f"启动失败：{entry['name']}：{error}", file=sys.stderr)
-            del token_to_entry[token]
-    watch_new_windows(token_to_entry, baseline, monitor_ids)
+    watch_new_windows({}, baseline, monitor_ids, scheduled=planned["entries"])
     return 0
 
 
