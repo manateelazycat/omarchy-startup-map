@@ -25,6 +25,7 @@ ALIASES = {
     "cloud.lazycat.shell.files": ["懒猫网盘", "Cloud Drive"],
     "cloud.lazycat.lightos.entry": ["LCMD WebShell", "LightOS WebShell"],
     "cloud.lazycat.app.todolist": ["懒猫清单"],
+    "cloud.lazycat.catlink.wechat": ["远程微信", "Remote WeChat"],
 }
 ALWAYS_HIDDEN = {"cloud.lazycat.shell.home", "cloud.lazycat.shell"}
 

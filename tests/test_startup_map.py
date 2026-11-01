@@ -162,7 +162,7 @@ class StartupMapTests(unittest.TestCase):
                 title = 'LCMD WebShell-user' if entry['name'] == 'LightOS' else '懒猫网盘-user'
                 windows.append({"address": '0x' + str(len(windows) + 1), "pid": 5,
                                 "class": "lzc-client-desktop", "initialTitle": title,
-                                "workspace": {"id": 8}, "monitor": 0})
+                                "workspace": {"id": entry['workspaceId']}, "monitor": 3})
                 if ambiguous:
                     windows[-1]['initialTitle'] = 'Unknown'
                     windows.append({**windows[-1], 'address': '0xa'})
@@ -175,6 +175,7 @@ class StartupMapTests(unittest.TestCase):
                 mock.patch.object(sm, 'hypr_json', side_effect=lambda _: [existing, *windows]), \
                 mock.patch.object(sm, 'proc_token', side_effect=lambda pid: pid), \
                 mock.patch.object(sm, 'launch_entry', side_effect=launch), \
+                mock.patch.object(sm, 'clear_lazycat_placement'), \
                 mock.patch.object(sm.lazycat_apps, 'Client') as client, \
                 mock.patch.object(sm.subprocess, 'Popen') as bootstrap, \
                 mock.patch.object(sm, 'place_window') as place:
@@ -202,7 +203,7 @@ class StartupMapTests(unittest.TestCase):
                                               ('LightOS', 'cloud.lazycat.lightos.entry', 'LCMD WebShell')]]
         launched, placed, _ = self.scheduler(entries, lazycat=True)
         self.assertEqual([name for name, _ in launched], ['Files', 'LightOS'])
-        self.assertEqual([call.args[0] for call in placed], ['0x1', '0x2'])
+        self.assertEqual(placed, [])  # Both windows were already mapped at the destination.
 
     def test_unready_lazycat_does_not_delay_native_apps_and_bootstraps_only_once(self):
         entries = [dict(name='Cloud', lazycatAppId='test.app', lazycatBoxId='box-1', delaySeconds=0),
@@ -224,6 +225,39 @@ class StartupMapTests(unittest.TestCase):
         launched, placed, _ = self.scheduler(entries, lazycat=True)
         self.assertEqual(launched, [])
         self.assertEqual(placed, [])
+
+    def test_lazycat_mapping_is_armed_before_the_launcher_is_requested(self):
+        entry = dict(name='LightOS', command='ignored', lazycatAppId='cloud.lazycat.lightos.entry',
+                     monitor='DP-2', workspaceId=4, lazycatWindowTitles=['LCMD WebShell'])
+        with mock.patch.object(sm, 'eval_lua') as evaluate:
+            sm.launch_entry(entry, 'token')
+        code = evaluate.call_args.args[0]
+        self.assertLess(code.index('.arm('), code.index('hl.exec_cmd('))
+        self.assertIn('StartupPlacement.lua', code)
+        self.assertIn('LCMD WebShell', code)
+        self.assertNotIn('hl.dsp.window.move', code)
+        self.assertNotIn('hl.dsp.workspace.move', code)
+
+    def test_native_fallback_never_moves_an_entire_workspace(self):
+        with mock.patch.object(sm, 'eval_lua') as evaluate:
+            sm.place_window('0x123', {'workspaceId': 4, 'monitor': 'DP-2'})
+        code = evaluate.call_args.args[0]
+        self.assertIn('hl.dsp.window.move', code)
+        self.assertNotIn('hl.dsp.workspace.move', code)
+
+    def test_remote_wechat_completion_waits_for_cde_instead_of_relay(self):
+        entry = dict(name='远程微信', lazycatAppId='cloud.lazycat.catlink.wechat')
+        relay = {'class': 'lzc-client-desktop', 'initialTitle': '远程微信-user'}
+        actual = {'class': 'wechat', 'initialTitle': '微信 on cloud.lazycat.catlink.wechat-cde'}
+        self.assertIsNone(sm.primary_window([relay], entry))
+        self.assertIs(sm.primary_window([relay, actual], entry), actual)
+
+    def test_re2_literal_escapes_title_operators_without_changing_spaces(self):
+        import re
+        title = 'My App [test] (v2)+.?'
+        pattern = '^' + sm.regex_literal(title) + '$'
+        self.assertIsNotNone(re.fullmatch(pattern, title))
+        self.assertIsNone(re.fullmatch(pattern, 'My App test v2'))
 
 
 if __name__ == "__main__":

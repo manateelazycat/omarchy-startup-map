@@ -56,13 +56,16 @@ omarchy-shell io.github.manateelazycat.startup-map show
 
 插件优先定位初始标题与配置名称匹配的启动窗口；同一应用后续打开的窗口仍按原有 Hyprland 窗口规则处理。某些应用会复用已运行的进程或通过独立服务创建窗口，导致启动标记丢失。遇到这种情况，可改填直接启动该应用的可执行文件命令，而不是通过 `.desktop` 启动。
 
-懒猫微服应用共享启动器进程，因此在各自延时到达后逐个请求启动并识别新窗口，前一个窗口确认后再请求下一个（最多等待 45 秒）。优先匹配标题别名，包括 LightOS 的 `LCMD WebShell`；仅出现一个候选窗口时可回退匹配，多个候选且标题不匹配时不移动窗口。已经打开的微服窗口不会被重新安排位置。测试时不要同时手动打开其他微服应用。
+懒猫微服应用共享启动器进程，因此在各自延时到达后逐个请求启动。请求前先设置临时窗口规则，使新窗口直接出现在目标显示器和工作区，不先占用其他显示器的空工作区，也不切换其他显示器的活动工作区。规则按标题别名匹配，包括 LightOS 的 `LCMD WebShell`；远程微信等 Catlink 应用分别定位连接窗口和实际 CDE 窗口。规则在目标窗口出现后撤销，45 秒未出现窗口时也会自动过期。已有窗口及标题不匹配的窗口不会被搬动。
+
+显式定位的窗口会带上 `omarchy-startup-map` 标签。与其他自动窗口布局插件同时使用时，对方应尊重该标签；[LCMD Window Rule](https://github.com/manateelazycat/omarchy-lcmd-window-rule) 0.1.1 及以后版本的远程微信空屏分配逻辑会跳过这些窗口。
 
 ## 开发检查
 
 ```bash
 python3 -m unittest discover -s tests -v
 node --test tests/app_catalog.test.cjs
+lua tests/placement.lua
 python3 tests/check_theme.py
 python3 tests/check_clipboard.py
 python3 tests/check_save.py

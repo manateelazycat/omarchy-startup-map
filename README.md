@@ -35,13 +35,16 @@ Selecting a LazyCat app saves its app ID, server ID, and window title aliases. L
 
 The launcher uses Hyprland startup rules and follows the first new window that retains its launch token, preferring a window whose initial title matches the entry name. Later windows keep their normal Hyprland window rules. Apps that reuse another process or create windows through a separate service may need a direct executable command instead of a `.desktop` launch so the window retains the token.
 
-LazyCat apps share a process, so their requests are serialized after their configured delays until each new window is identified (up to 45 seconds). Title aliases cover LightOS's `LCMD WebShell` initial title. A single new candidate can be used as a fallback; ambiguous candidates are left in place. Existing windows are not moved. Avoid manually opening other LazyCat apps during this placement interval.
+LazyCat requests are serialized after their configured delays. Before each request, temporary window rules place the new window directly on the target monitor/workspace, without activating an empty workspace on another monitor. Title aliases cover LightOS's `LCMD WebShell`; Catlink apps such as remote WeChat have separate rules for the connection window and real CDE window. Rules retire after mapping and expire after 45 seconds if no window appears. Existing windows and unmatched titles are left in place.
+
+Explicitly placed windows carry the `omarchy-startup-map` tag. Other automatic placement plugins should respect that tag; [LCMD Window Rule](https://github.com/manateelazycat/omarchy-lcmd-window-rule) 0.1.1 and newer skip these windows when assigning remote WeChat to an empty screen.
 
 ## Check
 
 ```bash
 python3 -m unittest discover -s tests -v
 node --test tests/app_catalog.test.cjs
+lua tests/placement.lua
 python3 tests/check_theme.py
 python3 tests/check_clipboard.py
 python3 tests/check_save.py

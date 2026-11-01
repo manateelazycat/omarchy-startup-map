@@ -231,8 +231,49 @@ def eval_lua(code: str) -> None:
         raise RuntimeError((result.stderr or result.stdout or "hyprctl eval 失败").strip())
 
 
+def lazycat_titles(entry: dict) -> list[str]:
+    return list(dict.fromkeys(name for name in [entry["name"], *entry.get("lazycatWindowTitles", []),
+                           *lazycat_apps.ALIASES.get(entry["lazycatAppId"], [])] if name))
+
+
+def remote_lazycat(entry: dict) -> bool:
+    return str(entry.get("lazycatAppId") or "").startswith("cloud.lazycat.catlink.")
+
+
+def regex_literal(value: str) -> str:
+    # Escape RE2 metacharacters without Python re.escape's escaped spaces.
+    return re.sub(r"([\\.^$|?*+()\[\]{}])", r"\\\1", value)
+
+
+def placement_module() -> str:
+    return "dofile(" + lua_string(str(Path(__file__).resolve().with_name("StartupPlacement.lua"))) + ")"
+
+
+def clear_lazycat_placement(token: str) -> None:
+    try:
+        eval_lua(placement_module() + ".clear(" + lua_string(token) + ")")
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        print(f"清理启动定位规则失败：{error}", file=sys.stderr)
+
+
 def launch_entry(entry: dict, token: str) -> None:
     cmd = launch_command(entry, token)
+    if entry.get("lazycatAppId"):
+        titles = lazycat_titles(entry)
+        title_regex = "^(" + "|".join(regex_literal(t) for t in titles) + ")(-.*)?$"
+        remote_regex = "^.* on " + regex_literal(entry["lazycatAppId"]) + "-cde$"
+        spec = ("{ token = " + lua_string(token) + ", workspace = " + str(entry["workspaceId"])
+                + ", monitor = " + lua_string(entry["monitor"])
+                + ", app_id = " + lua_string(entry["lazycatAppId"])
+                + ", titles = {" + ", ".join(lua_string(t) for t in titles) + "}"
+                + ", title_regex = " + lua_string(title_regex)
+                + ", remote = " + ("true" if remote_lazycat(entry) else "false")
+                + ", remote_regex = " + lua_string(remote_regex) + " }")
+        # A process startup token cannot reach the already-running launcher.
+        # Arm window rules BEFORE requesting the app instead of moving it later.
+        eval_lua(placement_module() + ".arm(" + spec + ")\n"
+                 + "hl.exec_cmd(" + lua_string(cmd) + ")")
+        return
     workspace = f'{entry["workspaceId"]} silent'
     monitor = f'{entry["monitor"]} silent'
     eval_lua(
@@ -268,17 +309,17 @@ def place_window(address: str, entry: dict) -> None:
     if not re.fullmatch(r"0x[0-9a-fA-F]+", address):
         return
     wid = str(entry["workspaceId"])
-    monitor = entry["monitor"]
     eval_lua(
         "hl.dispatch(hl.dsp.window.move({ workspace = " + lua_string(wid)
         + ", follow = false, window = " + lua_string("address:" + address) + " }))\n"
-        + "hl.dispatch(hl.dsp.workspace.move({ workspace = " + lua_string(wid)
-        + ", monitor = " + lua_string(monitor) + " }))"
     )
 
 
 def primary_window(candidates: list[dict], entry: dict) -> dict | None:
-    names = [entry["name"], *entry.get("lazycatWindowTitles", [])]
+    if remote_lazycat(entry):
+        suffix = " on " + entry["lazycatAppId"] + "-cde"
+        return next((client for client in candidates if str(client.get("initialTitle") or "").endswith(suffix)), None)
+    names = lazycat_titles(entry) if entry.get("lazycatAppId") else [entry["name"]]
     for client in candidates:
         for title in (client.get("initialTitle"), client.get("title")):
             if any(title == name or str(title or "").startswith(name + "-") for name in names if name):
@@ -324,8 +365,11 @@ def watch_new_windows(token_to_entry: dict[str, dict], baseline: set[str], monit
             pending.setdefault(token, []).append(client)
             first_seen.setdefault(token, time.monotonic())
         if lazy_token:
+            app = active[lazy_token]
             candidates = [c for c in clients if c.get("address") not in lazy_baselines[lazy_token]
-                          and c.get("class") == "lzc-client-desktop"
+                          and (c.get("class") == "lzc-client-desktop" or
+                               (remote_lazycat(app) and str(c.get("initialTitle") or "").endswith(
+                                   " on " + app["lazycatAppId"] + "-cde")))
                           and not str(c.get("initialTitle") or "").startswith("懒猫微服")]
             if candidates:
                 pending[lazy_token] = candidates
@@ -337,14 +381,17 @@ def watch_new_windows(token_to_entry: dict[str, dict], baseline: set[str], monit
             client = primary_window(candidates, entry)
             if client is None and time.monotonic() - first_seen[token] < 1:
                 continue
-            if client is None and entry.get("lazycatAppId") and len(candidates) != 1:
-                continue  # Never guess between multiple shared-process windows.
+            if client is None and entry.get("lazycatAppId"):
+                continue  # Do not move an unrelated shared-process window.
             client = client or candidates[0]
             address = str(client["address"])
             try:
                 if (client.get("workspace") or {}).get("id") != entry["workspaceId"] \
                         or client.get("monitor") != monitor_ids.get(entry["monitor"]):
-                    place_window(address, entry)
+                    if entry.get("lazycatAppId"):
+                        print(f"启动定位规则未生效，保留窗口原位置：{entry['name']}", file=sys.stderr)
+                    else:
+                        place_window(address, entry)
             except RuntimeError as error:
                 if token not in reported_errors:
                     print(f"放置窗口失败：{entry['name']}：{error}", file=sys.stderr)
@@ -353,11 +400,13 @@ def watch_new_windows(token_to_entry: dict[str, dict], baseline: set[str], monit
             del active[token]
             del pending[token]
             if token == lazy_token:
+                clear_lazycat_placement(token)
                 lazy_token = ""
         for token in list(active):
             if now >= deadlines[token]:
                 if active[token].get("lazycatAppId"):
                     print(f"未找到新的应用窗口（应用可能已经打开）：{active[token]['name']}", file=sys.stderr)
+                    clear_lazycat_placement(token)
                 del active[token]
                 pending.pop(token, None)
                 if token == lazy_token:
@@ -397,6 +446,8 @@ def watch_new_windows(token_to_entry: dict[str, dict], baseline: set[str], monit
                 launch_entry(entry, token)
             except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
                 print(f"启动失败：{entry['name']}：{error}", file=sys.stderr)
+                if entry.get("lazycatAppId"):
+                    clear_lazycat_placement(token)
                 continue
             active[token] = entry
             deadlines[token] = time.monotonic() + 45
